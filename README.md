@@ -10,7 +10,7 @@ INSTALLED_APPS = (
 )
 ```
 
-Mix `MixinVote` in your model, example:
+Mix `VoteMixin` in your model, example:
 
 ```python
 from django.db import models
