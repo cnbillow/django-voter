@@ -52,9 +52,9 @@ post.neutralvote(user)
 # return the number of valid user ids
 # never return False
 
-post.bulk_upvote(1, 2, 3, 7, 9)
-post.bulk_downvote(1, 2, 3, 7, 9)
-post.bulk_neutralvote(1, 2, 3, 7, 9)
+post.bulk_upvote(*user_ids)
+post.bulk_downvote(*user_ids)
+post.bulk_neutralvote(*user_ids)
 
 # check if the post upvoted/downvoted or just voted by user
 # return a Bool
