@@ -1,9 +1,6 @@
 # django-voter
 Django实现的通用赞踩系统
 
-# django-voter
-Django实现的通用赞踩系统
-
 Add django-voter
 
 ```python
