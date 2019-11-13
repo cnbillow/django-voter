@@ -25,8 +25,10 @@ class VoteReference(models.Model):
         verbose_name_plural = "VoteReference"
 
     def __str__(self):
-        return self.user.username +" voted to " + str(self.content_object)
-
+        if self.upvote:
+            return self.user.username + " upvoted " + str(self.content_object)
+        else:
+            return self.user.username + " downvoted " + str(self.content_object)
 
 class VoteManager(models.Manager):
     """
