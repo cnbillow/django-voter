@@ -30,27 +30,26 @@ class VoteReference(models.Model):
 
 class VoteManager(models.Manager):
     """
-    提供表级别的赞踩相关操作
+    提供表级别的赞踩相关操作, 例如获得指定user赞/踩过的该类实例
     """
-    def get_upvoted(self, user):
+    def _get_user_voted(self, user, upvote=None):
         self_type = ContentType.objects.get_for_model(self.model)
-        vote_qs = VoteReference.objects.filter(
-            user=user, 
-            upvote=True,
-            content_type__pk=self_type.id
-        )
+        qs = VoteReference.objects.filter(user=user, content_type__pk=self_type.id)
+        if upvote is None:
+            vote_qs = qs
+        else:
+            vote_qs = qs.filter(upvote=upvote)
         ids = [r.get('object_id') for r in vote_qs.values('object_id')]
         return self.get_queryset().filter(id__in=ids)
 
-    def get_downvoted(self, user):
-        self_type = ContentType.objects.get_for_model(self.model)
-        vote_qs = VoteReference.objects.filter(
-            user=user, 
-            upvote=False,
-            content_type__pk=self_type.id
-        )
-        ids = [r.get('object_id') for r in vote_qs.values('object_id')]
-        return self.get_queryset().filter(id__in=vote_qs)
+    def get_user_voted(self, user):
+        return self._get_user_voted(user=user)
+
+    def get_user_upvoted(self, user):
+        return self._get_user_voted(user=user, upvote=True)
+
+    def get_user_downvoted(self, user):
+        return self._get_user_voted(user=user, upvote=False)
 
     def get_popular(self, min_upvote_rate=0.7, min_up_count=10, limit=20):
         qs = self.get_queryset().filter(
@@ -62,7 +61,7 @@ class VoteManager(models.Manager):
 
 class VoteMixin(models.Model):
     """
-    混入类, 为任何Model提供赞踩字段和相关方法
+    mixin , provides filelds and methods
     """
     up_count = models.PositiveIntegerField(default=0)
     down_count = models.PositiveIntegerField(default=0)
@@ -74,7 +73,7 @@ class VoteMixin(models.Model):
     class Meta:
         abstract = True
 
-    def vote(self, user, upvote):
+    def _vote(self, user, upvote):
         r = self.vote_reference.filter(user=user).first()
         if not r:
             self.vote_reference.create(upvote=upvote, user=user)
@@ -92,6 +91,7 @@ class VoteMixin(models.Model):
                     down_count=F('down_count')+1, 
                     upvote_rate=self.upvote_rate
                 )
+            return True
         else:
             if upvote != r.upvote:
                 if upvote:
@@ -114,8 +114,17 @@ class VoteMixin(models.Model):
                         upvote_rate=self.upvote_rate
                     )
                     self.vote_reference.filter(id=r.id).update(upvote=False)
+                return True
+            else:
+                return False
 
-    def voteneutral(self, user):
+    def upvote(self, user):
+        return self._vote(user, upvote=True)
+
+    def downvote(self, user):
+        return self._vote(user, upvote=False)
+
+    def neutralvote(self, user):
         """ cancel vote """
         r = self.vote_reference.filter(user=user).first()
         if r:
@@ -134,6 +143,9 @@ class VoteMixin(models.Model):
                     down_count=F('down_count')-1, 
                     upvote_rate=self.upvote_rate
                 )
+            return True
+        else:
+            return False
 
     def get_upvote_rate(self):
         return self._calc_upvote_rate(self.up_count, self.down_count)
@@ -145,10 +157,23 @@ class VoteMixin(models.Model):
         upvote_rate = round((up_count/base), 2)
         return upvote_rate
 
-    def get_voted_user(self, upvote=True):
-        vote_qs = self.vote_reference.filter(upvote=upvote).values('user')
-        user_ids = [r.get('user') for r in vote_qs]
+    def _get_voted_users(self, upvote=None):
+        qs = self.vote_reference.all()
+        if upvote is None:
+            vote_qs = qs
+        else:
+            vote_qs = qs.filter(upvote=upvote)
+        user_ids = [r.get('user') for r in vote_qs.values('user')]
         return get_user_model().objects.filter(id__in=user_ids)
+
+    def get_upvoted_users(self):
+        return self._get_voted_users(upvote=True)
+
+    def get_downvoted_users(self):
+        return self._get_voted_users(upvote=False)
+
+    def get_voted_users(self):
+        return self._get_voted_users(upvote=None)
 
     def is_upvoted(self, user):
         return self.vote_reference.filter(user=user, upvote=True).exists()
@@ -156,30 +181,16 @@ class VoteMixin(models.Model):
     def is_downvoted(self, user):
         return self.vote_reference.filter(user=user, upvote=False).exists()
 
-    def bulk_vote(self, users_pk, upvote):
+    def is_voted(self, user):
+        return self.vote_reference.filter(user=user).exists()
+
+    def _bulk_vote(self, user_ids, upvote):
         """
         批量操作, 会在常数次查询内完成
         """
-        existed_record_count = self.vote_reference.filter(user__id__in=users_pk, upvote=upvote).count()
-        conflicted_record_count = self.vote_reference.filter(user__id__in=users_pk, upvote=not upvote).count()
-        if upvote:
-            self.up_count -= existed_record_count
-            self.down_count -= conflicted_record_count
-            self.__class__.objects.filter(id=self.id).update(
-                up_count=F('up_count')-existed_record_count,
-                down_count=F('down_count')-conflicted_record_count
-            )
-        else:
-            self.down_count -= existed_record_count
-            self.up_count -= conflicted_record_count
-            self.__class__.objects.filter(id=self.id).update(
-                down_count=F('down_count')-existed_record_count,
-                up_count=F('up_count')-conflicted_record_count
-            )
+        self._bulk_neutralvote(user_ids)
 
-        self.vote_reference.filter(user__id__in=users_pk).delete()
-
-        users = get_user_model().objects.filter(id__in=users_pk)
+        users = get_user_model().objects.filter(id__in=user_ids)
         self_type = ContentType.objects.get_for_model(self.__class__)
         ready_records = [VoteReference(
             content_type=self_type, 
@@ -202,3 +213,29 @@ class VoteMixin(models.Model):
                 down_count=F('down_count')+len(users),
                 upvote_rate=self.upvote_rate
             )
+        return len(users)
+
+    def bulk_upvote(self, *user_ids):
+        print(user_ids)
+        return self._bulk_vote(user_ids, upvote=True)
+
+    def bulk_downvote(self, *user_ids):
+        return self._bulk_vote(user_ids, upvote=False)
+
+    def _bulk_neutralvote(self, user_ids):
+        upvoted_record_count = self.vote_reference.filter(user__id__in=user_ids, upvote=True).count()
+        downvoted_record_count = self.vote_reference.filter(user__id__in=user_ids, upvote=False).count()
+        self.vote_reference.filter(user__id__in=user_ids).delete()
+        self.up_count -= upvoted_record_count
+        self.down_count -= downvoted_record_count
+        self.upvote_rate = self.get_upvote_rate()
+        self.__class__.objects.filter(id=self.id).update(
+            up_count=F('up_count')-upvoted_record_count,
+            down_count=F('down_count')-downvoted_record_count,
+            upvote_rate=self.upvote_rate
+        )
+        return upvoted_record_count + downvoted_record_count
+
+    def bulk_neutralvote(self, *user_ids):
+        return self._bulk_neutralvote(user_ids)
+
