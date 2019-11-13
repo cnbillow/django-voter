@@ -57,7 +57,7 @@ post.bulk_downvote(1, 2, 3, 7, 9)
 post.bulk_neutralvote(1, 2, 3, 7, 9)
 
 # check if the post upvoted/downvoted or just voted by user
-# return a Boolean
+# return a Bool
 
 post.is_upvoted(user)
 post.is_downvoted(user)
